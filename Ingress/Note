@@ -1,0 +1,11 @@
+If you use "deploy-tls-termination-controller-ELB.yaml" you don't need to specify secrets inside Ingress,
+
+step: 1 create image and put to ecr
+step: 2 using ecr image create deployment
+step: 3 create services for each deployment as ClusterIP
+step: 4 setup Ingress controller with ACM SSL(it is a single file which will deploy all below), if NLB specify ssl inside Service, if ELB then specify ssl inside Ingress as secrets
+  - ConfigMap
+  - IngressControleer
+  - ServiceAccount
+  - Load Balancer Service
+    etc.
