@@ -1,0 +1,106 @@
+Parameters:
+  Ec2SshKey:
+    Description: Name of an existing EC2 KeyPair to enable SSH access to the instance
+    Type: AWS::EC2::KeyPair::KeyName
+    ConstraintDescription: must be the name of an existing
+  NetworkStack:
+    Type: String
+    Default: VPC-Stack
+  EnvironmentName:
+    Type: String
+    Default: Prod
+
+
+Mappings:
+  PartitionMap:
+    aws:
+      EC2ServicePrincipal: "ec2.amazonaws.com"
+    aws-cn:
+      EC2ServicePrincipal: "ec2.amazonaws.com.cn"
+    aws-iso:
+      EC2ServicePrincipal: "ec2.c2s.ic.gov"
+    aws-iso-b:
+      EC2ServicePrincipal: "ec2.sc2s.sgov.gov"
+
+Resources:
+  eksClusterRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+        - Effect: Allow
+          Principal:
+            Service:
+            - eks.amazonaws.com
+          Action:
+          - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonEKSClusterPolicy
+
+  NodeInstanceRole:
+    Type: "AWS::IAM::Role"
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - !FindInMap [PartitionMap, !Ref "AWS::Partition", EC2ServicePrincipal]
+            Action:
+              - "sts:AssumeRole"
+      ManagedPolicyArns:
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEKSWorkerNodePolicy"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEKS_CNI_Policy"
+        - !Sub "arn:${AWS::Partition}:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly"
+      Path: /
+
+  NodeInstanceProfile:
+    Type: "AWS::IAM::InstanceProfile"
+    Properties:
+      Path: /
+      Roles:
+        - Ref: NodeInstanceRole
+
+  Cluster:
+    Type: 'AWS::EKS::Cluster'
+    Properties:
+      Name: !Ref EnvironmentName
+      Version: '1.18'
+      RoleArn: !GetAtt eksClusterRole.Arn
+      ResourcesVpcConfig:
+        SecurityGroupIds:
+          - Fn::ImportValue:
+              Fn::Sub: "${NetworkStack}-LBSecurityGroupID"
+        SubnetIds:
+          - Fn::ImportValue:
+              Fn::Sub: "${NetworkStack}-PublicSubnet1SubnetID"
+          - Fn::ImportValue:
+              Fn::Sub: "${NetworkStack}-PublicSubnet2SubnetID"
+
+  EKSNodegroup:
+    Type: 'AWS::EKS::Nodegroup'
+    Properties:
+      ClusterName: !Ref Cluster
+      NodeRole: !GetAtt NodeInstanceRole.Arn
+      ScalingConfig:
+        MinSize: 1
+        DesiredSize: 1
+        MaxSize: 7
+      InstanceTypes:
+        - t2.small
+      Labels:
+        Name: Node-1
+      Subnets:
+        - Fn::ImportValue:
+            Fn::Sub: "${NetworkStack}-PublicSubnet1SubnetID"
+        - Fn::ImportValue:
+            Fn::Sub: "${NetworkStack}-PublicSubnet2SubnetID"
+      RemoteAccess:
+        Ec2SshKey: !Ref Ec2SshKey
+        SourceSecurityGroups:
+          - Fn::ImportValue:
+              Fn::Sub: "${NetworkStack}-LBSecurityGroupID"
+
+
